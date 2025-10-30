@@ -559,7 +559,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_data(data)
 
             # Step 2: Inform user and send welcome message
-            await query.message.reply_text("✅ Verified — you can now re-request to join the channel!")
+            await query.message.reply_text("✅ Verification complete!")
             
             # Create the "Add to Group" button
             bot_username = (await context.bot.get_me()).username

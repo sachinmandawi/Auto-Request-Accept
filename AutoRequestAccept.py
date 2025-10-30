@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-AutoApproveBot (v4.3) - Final Code
+AutoApproveBot (v4.4) - Final Code
 Author: Sachin Sir 🔥
-Core Functionality: Automatic Join Request Approval based on Force-Join checks.
-Owner Panel: Unchanged (Broadcast, Force-Join Settings, Manage Owner).
+Core Functionality: Automatic Join Request Approval based on Force-Join checks with custom delay.
+Owner Panel: Added "Set Delay" feature. Broadcast, Force-Join, Manage Owner unchanged.
 """
 import json
 import os
@@ -38,6 +38,7 @@ WELCOME_TEXT = (
     "But I can’t work outside the group — add me there so I can show off!"
 )
 
+# <<<--- MODIFICATION START (v4.4) --->>>
 DEFAULT_DATA = {
     "subscribers": [],
     "owners": [OWNER_ID],
@@ -47,7 +48,9 @@ DEFAULT_DATA = {
         "channels": [],
         "check_btn_text": "✅ Verify",
     },
+    "approval_delay_minutes": 0, # New setting for approval delay
 }
+# <<<--- MODIFICATION END --->>>
 
 
 # ---------- Storage Helpers ----------
@@ -69,6 +72,10 @@ def load_data():
         data["owners"] = DEFAULT_DATA["owners"]
     if "subscribers" not in data:
         data["subscribers"] = DEFAULT_DATA["subscribers"]
+    # <<<--- MODIFICATION START (v4.4) --->>>
+    if "approval_delay_minutes" not in data:
+        data["approval_delay_minutes"] = 0
+    # <<<--- MODIFICATION END --->>>
     return data
 
 
@@ -268,16 +275,21 @@ async def prompt_user_with_missing_channels(update: Update, context: ContextType
 
 
 # ---------- Keyboards ----------
+# <<<--- MODIFICATION START (v4.4) --->>>
 def owner_panel_kb():
     kb = [
         [
             InlineKeyboardButton("📢 Broadcast", callback_data="owner_broadcast"),
             InlineKeyboardButton("🔒 Force Join Setting", callback_data="owner_force"),
         ],
-        [InlineKeyboardButton("🧑‍💼 Manage Owner", callback_data="owner_manage")],
+        [
+            InlineKeyboardButton("🧑‍💼 Manage Owner", callback_data="owner_manage"),
+            InlineKeyboardButton("🕒 Set Delay", callback_data="owner_set_delay") # New Button
+        ],
         [InlineKeyboardButton("⬅️ Close", callback_data="owner_close")],
     ]
     return InlineKeyboardMarkup(kb)
+# <<<--- MODIFICATION END --->>>
 
 
 def force_setting_kb(force: dict):
@@ -331,7 +343,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         subs.append(user.id)
         save_data(data)
 
-    # <<<--- MODIFICATION START --->>>
     # Create the "Add to Group" button
     bot_username = (await context.bot.get_me()).username
     add_to_group_button = InlineKeyboardButton(
@@ -345,7 +356,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=keyboard # Add the button here
     )
-    # <<<--- MODIFICATION END --->>>
 
 
 async def owner_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -367,6 +377,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if payload == "owner_close":
         await query.message.edit_text("✅ Owner panel closed.")
         return
+
+    # <<<--- MODIFICATION START (v4.4) --->>>
+    if payload == "owner_set_delay":
+        if not is_owner(uid):
+            await query.message.reply_text("❌ Only owners can set the approval delay.")
+            return
+        current_delay = data.get("approval_delay_minutes", 0)
+        context.user_data["flow"] = "set_delay_time"
+        await query.message.reply_text(
+            f"🕒 *Set Approval Delay*\n\nCurrent delay is `{current_delay}` minutes.\n\n"
+            "Send the new delay time in minutes (e.g., `5` for 5 minutes). Send `0` for immediate approval.",
+            parse_mode="Markdown",
+            reply_markup=cancel_btn()
+        )
+        return
+    # <<<--- MODIFICATION END --->>>
 
     # --- Owner Panel Logic (Unchanged) ---
     if payload == "owner_broadcast":
@@ -535,7 +561,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Step 2: Inform user and send welcome message
             await query.message.reply_text("✅ Verified — you can now re-request to join the channel!")
             
-            # <<<--- MODIFICATION START --->>>
             # Create the "Add to Group" button
             bot_username = (await context.bot.get_me()).username
             add_to_group_button = InlineKeyboardButton(
@@ -549,7 +574,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 reply_markup=keyboard # Add the button here
             )
-            # <<<--- MODIFICATION END --->>>
         else:
             # Step 3: Verification failed. Remove from subscribers and re-prompt.
             subs = data.setdefault("subscribers", [])
@@ -584,6 +608,29 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Cancelled.", reply_markup=ReplyKeyboardRemove())
         return
 
+    # <<<--- MODIFICATION START (v4.4) --->>>
+    # Set approval delay flow
+    if flow == "set_delay_time":
+        try:
+            delay_minutes = int(text)
+            if delay_minutes < 0:
+                await update.message.reply_text("❌ Please send a non-negative number (0 or more).")
+                return
+        except ValueError:
+            await update.message.reply_text("❌ Invalid input. Please send a numeric value for minutes.")
+            return
+
+        data["approval_delay_minutes"] = delay_minutes
+        save_data(data)
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ Approval delay set to `{delay_minutes}` minutes.",
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+    # <<<--- MODIFICATION END --->>>
+        
     # Broadcast flow
     if flow == "broadcast_text":
         subs = data.get("subscribers", [])
@@ -661,6 +708,52 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
 
 
+# <<<--- MODIFICATION START (v4.4) --- NEW FUNCTIONS --->>>
+async def _approve_user_job(context: ContextTypes.DEFAULT_TYPE):
+    """Job callback to approve a user after a delay."""
+    job = context.job
+    chat_id = job.data["chat_id"]
+    user_id = job.data["user_id"]
+    try:
+        await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
+        print(f"Delayed approval successful for user {user_id} in chat {chat_id}.")
+        # Optional: Send a success message after approval
+        try:
+            await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!", parse_mode="Markdown")
+        except Exception:
+            pass # Fail silently
+    except Exception as e:
+        print(f"Failed to execute delayed approval for user {user_id} in chat {chat_id}: {e}")
+
+
+async def _process_approval(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
+    """Handles the approval logic, either immediate or delayed."""
+    data = load_data()
+    delay_minutes = data.get("approval_delay_minutes", 0)
+
+    if delay_minutes > 0:
+        delay_seconds = delay_minutes * 60
+        context.job_queue.run_once(
+            _approve_user_job,
+            when=delay_seconds,
+            data={"chat_id": chat_id, "user_id": user_id},
+            name=f"approve-{chat_id}-{user_id}"
+        )
+        print(f"Scheduled approval for user {user_id} in {chat_id} in {delay_minutes} minutes.")
+    else: # Immediate approval
+        try:
+            await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
+            print(f"User {user_id} automatically approved to {chat_id}.")
+            # Optional: Send a welcome message
+            try:
+                await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!", parse_mode="Markdown")
+            except Exception:
+                pass
+        except Exception as e:
+            print(f"Failed to approve user {user_id} to {chat_id}: {e}")
+# <<<--- MODIFICATION END --->>>
+
+
 # ---------- New Chat Join Request Handler (Core Auto-Approve Logic) ----------
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
@@ -673,13 +766,10 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = chat_join_request.chat.id
     data = load_data()
 
-    # 1. Owner bypass: owners are always approved
+    # <<<--- MODIFICATION START (v4.4) --- REPLACED APPROVAL LOGIC --->>>
+    # 1. Owner bypass: owners are always approved (respecting delay)
     if is_owner(user_id):
-        try:
-            await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
-            print(f"Owner {user_id} automatically approved to {chat_id}")
-        except Exception as e:
-            print(f"Failed to approve owner {user_id} to {chat_id}: {e}")
+        await _process_approval(context, chat_id, user_id)
         return
 
     force = data.get("force", {})
@@ -691,33 +781,19 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         missing, check_failed = await get_missing_channels(context, user_id)
         
         if not missing:
-            # User is a member of all required channels -> Approve
-            try:
-                await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
-                print(f"User {user_id} automatically approved to {chat_id} after force-join check.")
-                
-                # Optional: Send a welcome message to the user in private chat
-                try:
-                    await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!", parse_mode="Markdown")
-                except Exception:
-                    pass # Fail silently if bot can't send private message
-                    
-            except Exception as e:
-                print(f"Failed to approve user {user_id} to {chat_id}: {e}")
-                
+            # User is a member of all required channels -> Approve (respecting delay)
+            await _process_approval(context, chat_id, user_id)
+            
         else:
-            # User is missing channels or check failed -> Prompt for verification (sends message to private chat)
+            # User is missing channels or check failed -> Prompt for verification
             # Declining the request is handled inside prompt_user_with_missing_channels
             await prompt_user_with_missing_channels(update, context, missing, check_failed)
             print(f"User {user_id} denied auto-approval and prompted for verification.")
             
     else:
-        # Force-join disabled or no channels configured -> Auto-Approve
-        try:
-            await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
-            print(f"User {user_id} automatically approved to {chat_id} (Force-Join disabled).")
-        except Exception as e:
-            print(f"Failed to approve user {user_id} to {chat_id}: {e}")
+        # Force-join disabled or no channels configured -> Auto-Approve (respecting delay)
+        await _process_approval(context, chat_id, user_id)
+    # <<<--- MODIFICATION END --->>>
 
 
 # ---------- Run ----------
@@ -732,12 +808,10 @@ def main():
     # Crucial: Handler for automatic approval logic
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
     
-    # Owner text handler must target only owner to handle flows (Broadcast, Add Owner, Force Add Channel)
+    # Owner text handler must target only owner to handle flows
     app.add_handler(MessageHandler(filters.User(OWNER_ID) & filters.TEXT & ~filters.COMMAND, owner_text_handler))
 
-    # Note: The generic echo_message handler has been removed.
-
-    print("🤖 AutoApproveBot v4.3 running...")
+    print("🤖 AutoApproveBot v4.4 running...")
     app.run_polling()
 
 

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-AutoApproveBot (v4.5) - Full code with expanded Broadcast targets (Users / Groups/Channels / All)
+AutoApproveBot (v4.6) - Full code with expanded Broadcast targets and robust approval error handling.
 Author: Sachin Sir 🔥 (adapted)
 Notes:
+ - Approval functions now notify owners on failure, making debugging easier.
  - Broadcast options added to Owner Panel.
  - Bot records known group/channel chats automatically on seeing messages there.
- - Broadcast to "Groups/Channels" will attempt to send messages to those chat IDs (bot must have permission).
  - Keep BOT_TOKEN private and replace placeholder with your real token.
 """
 import json
@@ -713,44 +713,79 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # default fallback
     context.user_data.clear()
 
-# ---------- New Functions for Delayed Approval ----------
+# ---------- [UPDATED] Delayed Approval & Error Handling ----------
 async def _approve_user_job(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.data["chat_id"]
     user_id = job.data["user_id"]
     try:
         await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
-        print(f"Delayed approval successful for user {user_id} in chat {chat_id}.")
+        print(f"[OK] Delayed approval successful for user {user_id} in chat {chat_id}.")
         try:
-            await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!", parse_mode="Markdown")
+            await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!")
         except Exception:
             pass
     except Exception as e:
-        print(f"Failed to execute delayed approval for user {user_id} in chat {chat_id}: {e}")
+        print(f"[ERR] Delayed approval failed for user {user_id} in chat {chat_id}: {e}")
+        # Notify owners about failure (so you can debug)
+        data = load_data()
+        owners = data.get("owners", [])
+        for o in owners:
+            try:
+                await context.bot.send_message(o, f"❗ Delayed approval failed for user `{user_id}` in chat `{chat_id}`.\nError: `{e}`", parse_mode="Markdown")
+            except Exception:
+                pass
 
 async def _process_approval(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
     data = load_data()
     delay_minutes = data.get("approval_delay_minutes", 0)
 
-    if delay_minutes > 0:
-        delay_seconds = delay_minutes * 60
-        context.job_queue.run_once(
-            _approve_user_job,
-            when=delay_seconds,
-            data={"chat_id": chat_id, "user_id": user_id},
-            name=f"approve-{chat_id}-{user_id}"
-        )
-        print(f"Scheduled approval for user {user_id} in {chat_id} in {delay_minutes} minutes.")
+    if delay_minutes and delay_minutes > 0:
+        delay_seconds = int(delay_minutes) * 60
+        try:
+            context.job_queue.run_once(
+                _approve_user_job,
+                when=delay_seconds,
+                data={"chat_id": chat_id, "user_id": user_id},
+                name=f"approve-{chat_id}-{user_id}"
+            )
+            print(f"[SCHEDULE] Scheduled approval for user {user_id} in {chat_id} in {delay_minutes} minutes.")
+        except Exception as e:
+            print(f"[ERR] Failed to schedule approval for {user_id} in {chat_id}: {e}")
+            # Notify owners
+            for o in data.get("owners", []):
+                try:
+                    await context.bot.send_message(o, f"❗ Failed to schedule approval for user `{user_id}` in chat `{chat_id}`.\nError: `{e}`", parse_mode="Markdown")
+                except Exception:
+                    pass
     else:
         try:
             await context.bot.approve_chat_join_request(chat_id=chat_id, user_id=user_id)
-            print(f"User {user_id} automatically approved to {chat_id}.")
+            print(f"[OK] User {user_id} automatically approved to {chat_id}.")
             try:
-                await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!", parse_mode="Markdown")
+                await context.bot.send_message(user_id, "✅ You have been automatically approved to the channel!")
             except Exception:
                 pass
         except Exception as e:
-            print(f"Failed to approve user {user_id} to {chat_id}: {e}")
+            print(f"[ERR] Failed to approve user {user_id} to {chat_id}: {e}")
+            # Notify owners about failure and common fixes
+            for o in data.get("owners", []):
+                try:
+                    await context.bot.send_message(
+                        o,
+                        (
+                            f"❗ Failed to approve user `{user_id}` to chat `{chat_id}`.\n\n"
+                            f"Error: `{e}`\n\n"
+                            "Common causes:\n"
+                            "- Bot is not admin in the chat.\n"
+                            "- Bot doesn't have permission to approve/join requests.\n"
+                            "- Chat id is invalid or bot removed from chat.\n\n"
+                            "Please ensure the bot is admin in that chat and has permission to add/approve users."
+                        ),
+                        parse_mode="Markdown"
+                    )
+                except Exception:
+                    pass
 
 # ---------- New Chat Join Request Handler ----------
 async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -806,7 +841,7 @@ def main():
     # This handler now works for owners (text flows)
     app.add_handler(MessageHandler(is_owner_filter & filters.TEXT & ~filters.COMMAND, owner_text_handler))
 
-    print("🤖 AutoApproveBot v4.5 running with broadcast improvements...")
+    print("🤖 AutoApproveBot v4.6 running with improved error handling...")
     app.run_polling()
 
 if __name__ == "__main__":

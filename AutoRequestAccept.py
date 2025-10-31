@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-AutoApproveBot (v4.6) - Full code with expanded Broadcast targets and robust approval error handling.
+AutoApproveBot (v4.7) - JobQueue fix applied.
 Author: Sachin Sir 🔥 (adapted)
 Notes:
- - Approval functions now notify owners on failure, making debugging easier.
- - Broadcast options added to Owner Panel.
- - Bot records known group/channel chats automatically on seeing messages there.
+ - Fixed 'NoneType' error by correctly initializing the JobQueue.
+ - Approval functions notify owners on failure, making debugging easier.
  - Keep BOT_TOKEN private and replace placeholder with your real token.
 """
 import json
@@ -27,6 +26,7 @@ from telegram.ext import (
     ContextTypes,
     filters,
     ChatJoinRequestHandler,
+    JobQueue,  # <-- IMPORT ADDED HERE
 )
 # small compatibility import if needed
 from telegram.ext.filters import BaseFilter
@@ -713,7 +713,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     # default fallback
     context.user_data.clear()
 
-# ---------- [UPDATED] Delayed Approval & Error Handling ----------
+# ---------- Delayed Approval & Error Handling ----------
 async def _approve_user_job(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     chat_id = job.data["chat_id"]
@@ -823,9 +823,14 @@ async def record_chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
             known.append({"chat_id": chat.id, "title": chat.title or chat.username or str(chat.id), "type": chat.type})
             save_data(data)
 
-# ---------- Run ----------
+# ---------- [UPDATED] Run ----------
 def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+    """Start the bot with JobQueue enabled."""
+    # Create the JobQueue
+    job_queue = JobQueue()
+    
+    # Build the Application and pass the JobQueue to it
+    app = Application.builder().token(BOT_TOKEN).job_queue(job_queue).build()
 
     # Commands & callback handler
     app.add_handler(CommandHandler("start", start_cmd))
@@ -841,7 +846,7 @@ def main():
     # This handler now works for owners (text flows)
     app.add_handler(MessageHandler(is_owner_filter & filters.TEXT & ~filters.COMMAND, owner_text_handler))
 
-    print("🤖 AutoApproveBot v4.6 running with improved error handling...")
+    print("🤖 AutoApproveBot v4.7 running with JobQueue enabled...")
     app.run_polling()
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ from telegram.ext import (
 from telegram.ext.filters import BaseFilter
 
 # ================ CONFIG =================
-BOT_TOKEN = "7666547004:AAHArJPZXZCia2aJqc52cyJy5v-HyOnlTK0"  # <-- Put your bot token here
+BOT_TOKEN = "8311987428:AAGUYS4Oyhj0y7O74P0dz4IHfQSQ438x3kA"  # <-- Put your bot token here
 OWNER_ID = 8070535163  # default owner; can be managed via bot
 # --- File Names ---
 DATA_FILE = "data.json"

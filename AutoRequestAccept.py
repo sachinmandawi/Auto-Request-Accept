@@ -55,10 +55,19 @@ DEFAULT_DATA = {
         "interval_minutes": 60  # default 60 minutes
     },
     "sent_backup_messages": {}, # format: {"owner_id": [msg_id1, msg_id2, ...]}
+    "stats": {}, # <-- NEW: For statistics. Format: {"YYYY-MM-DD": {"new_users": 0, "approved": 0, "declined": 0}}
 }
 
 
 # ---------- Local DB Helpers ----------
+def _check_and_reset_daily_stats(data):
+    """Initializes or resets daily stats if the date has changed."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    stats = data.setdefault("stats", {})
+    if today not in stats:
+        stats[today] = {"new_users": 0, "approved": 0, "declined": 0}
+    return data
+
 def _ensure_data_keys(data):
     for key, value in DEFAULT_DATA.items():
         data.setdefault(key, value)
@@ -69,6 +78,8 @@ def _ensure_data_keys(data):
         data["auto_backup"] = DEFAULT_DATA["auto_backup"].copy()
     if "sent_backup_messages" not in data:
         data["sent_backup_messages"] = {}
+    if "stats" not in data: # <-- NEW
+        data["stats"] = {} # <-- NEW
     return data
 
 
@@ -220,6 +231,8 @@ def merge_data(existing: dict, new: dict):
         merged["auto_backup"] = existing.get("auto_backup", DEFAULT_DATA["auto_backup"]).copy()
     # DO NOT merge "sent_backup_messages"; always keep the existing log
     merged["sent_backup_messages"] = existing.get("sent_backup_messages", {})
+    # DO NOT merge "stats"; always keep the existing log
+    merged["stats"] = existing.get("stats", {})
 
     return merged, summary
 
@@ -362,6 +375,13 @@ async def prompt_user_with_missing_channels(update: Update, context: ContextType
                     chat_id=update.chat_join_request.chat.id,
                     user_id=update.chat_join_request.from_user.id,
                 )
+                # --- NEW: Increment decline counter ---
+                data = load_data()
+                data = _check_and_reset_daily_stats(data)
+                today = datetime.now().strftime("%Y-%m-%d")
+                data["stats"][today]["declined"] += 1
+                save_data(data)
+                # --- END NEW ---
             except Exception as e:
                 print(f"Failed to decline join request for {recipient_id}: {e}")
         else:
@@ -381,7 +401,10 @@ def owner_panel_kb():
             InlineKeyboardButton("🧑‍💼 Manage Owner", callback_data="owner_manage"),
             InlineKeyboardButton("🕒 Set Delay", callback_data="owner_set_delay"),
         ],
-        [InlineKeyboardButton("🗄️ Database", callback_data="owner_db")],
+        [
+            InlineKeyboardButton("🗄️ Database", callback_data="owner_db"),
+            InlineKeyboardButton("📊 Statistics", callback_data="owner_stats") # <-- NEW
+        ],
         [InlineKeyboardButton("⬅️ Close", callback_data="owner_close")],
     ]
     return InlineKeyboardMarkup(kb)
@@ -549,6 +572,11 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     subs = data.setdefault("subscribers", [])
                     if user.id not in subs:
                         subs.append(user.id)
+                        # --- NEW: Increment new user counter ---
+                        data = _check_and_reset_daily_stats(data)
+                        today = datetime.now().strftime("%Y-%m-%d")
+                        data["stats"][today]["new_users"] += 1
+                        # --- END NEW ---
                         save_data(data)
                 else:
                     subs = data.setdefault("subscribers", [])
@@ -564,6 +592,11 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     subs = data.setdefault("subscribers", [])
     if user.id not in subs:
         subs.append(user.id)
+        # --- NEW: Increment new user counter ---
+        data = _check_and_reset_daily_stats(data)
+        today = datetime.now().strftime("%Y-%m-%d")
+        data["stats"][today]["new_users"] += 1
+        # --- END NEW ---
         save_data(data)
 
     bot_username = (await context.bot.get_me()).username
@@ -606,6 +639,39 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_owner(uid) and payload.startswith(("owner_", "db_", "mgr_", "force_")):
         await query.message.reply_text("❌ Only owners can use this function.")
         return
+
+    # --- NEW: Statistics Panel ---
+    if payload == "owner_stats":
+        data = _check_and_reset_daily_stats(data) # Ensure today's stats are initialized
+
+        total_users = len(data.get("subscribers", []))
+        known_chats = data.get("known_chats", [])
+        total_groups = len([c for c in known_chats if c.get("type") in ("group", "supergroup")])
+        total_channels = len([c for c in known_chats if c.get("type") == "channel"])
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        today_stats = data.get("stats", {}).get(today_str, {"new_users": 0, "approved": 0, "declined": 0})
+
+        new_users_today = today_stats.get("new_users", 0)
+        approved_today = today_stats.get("approved", 0)
+        declined_today = today_stats.get("declined", 0)
+
+        stats_msg = (
+            "📊 *Bot Statistics*\n\n"
+            "*-- USER & CHAT STATS --*\n"
+            f"👤 Total Users: *{total_users}*\n"
+            f"👥 Total Groups: *{total_groups}*\n"
+            f"📢 Total Channels: *{total_channels}*\n\n"
+            "*-- GROWTH (Last 24h) --*\n"
+            f"📈 New Users Today: *{new_users_today}*\n"
+            f"✅ Approved Today: *{approved_today}*\n"
+            f"❌ Declined Today: *{declined_today}*"
+        )
+        
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="db_back")]])
+        await query.message.edit_text(stats_msg, parse_mode="Markdown", reply_markup=kb)
+        return
+    # --- END NEW ---
 
     # DB Management
     if payload == "owner_db":
@@ -932,6 +998,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             subs = data.setdefault("subscribers", [])
             if uid not in subs:
                 subs.append(uid)
+                # --- NEW: Increment new user counter ---
+                data = _check_and_reset_daily_stats(data)
+                today = datetime.now().strftime("%Y-%m-%d")
+                data["stats"][today]["new_users"] += 1
+                # --- END NEW ---
                 save_data(data)
 
             await query.message.reply_text("✅ Verification complete!")
@@ -1272,7 +1343,14 @@ async def _approve_user_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _process_approval(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int):
+    # --- NEW: Increment approved counter ---
     data = load_data()
+    data = _check_and_reset_daily_stats(data)
+    today = datetime.now().strftime("%Y-%m-%d")
+    data["stats"][today]["approved"] += 1
+    save_data(data)
+    # --- END NEW ---
+    
     delay_minutes = data.get("approval_delay_minutes", 0)
     if delay_minutes and delay_minutes > 0:
         delay_seconds = int(delay_minutes) * 60

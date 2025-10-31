@@ -259,7 +259,7 @@ def owner_panel_kb():
 def broadcast_target_kb():
     kb = [
         [InlineKeyboardButton("👥 Users", callback_data="broadcast_target_users"),
-         InlineKeyboardButton("🏷️ Groups/Channels", callback_data="broadcast_target_chats")],
+         InlineKeyboardButton("🏷️ Groups", callback_data="broadcast_target_chats")],
         [InlineKeyboardButton("🌐 All", callback_data="broadcast_target_all"),
          InlineKeyboardButton("⬅️ Back", callback_data="owner_back_from_broadcast")],
     ]

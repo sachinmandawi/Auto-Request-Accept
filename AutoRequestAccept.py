@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-AutoApproveBot (v4.4) - Final Code
+AutoApproveBot (v4.4) - Final Corrected Code
 Author: Sachin Sir 🔥
 Core Functionality: Automatic Join Request Approval based on Force-Join checks with custom delay.
 Owner Panel: Added "Set Delay" feature. Broadcast, Force-Join, Manage Owner unchanged.
+Correction: All owners now have equal rights for text-based commands.
 """
 import json
 import os
@@ -24,6 +25,10 @@ from telegram.ext import (
     filters,
     ChatJoinRequestHandler, # New handler for join requests
 )
+# <<<--- MODIFICATION START (OWNER FIX) --->>>
+from telegram.ext.filters import BaseFilter
+# <<<--- MODIFICATION END --->>>
+
 
 # ================ CONFIG =================
 BOT_TOKEN = "8311987428:AAGUYS4Oyhj0y7O74P0dz4IHfQSQ438x3kA" # <-- Replace with your actual bot token
@@ -38,7 +43,6 @@ WELCOME_TEXT = (
     "But I can’t work outside the group — add me there so I can show off!"
 )
 
-# <<<--- MODIFICATION START (v4.4) --->>>
 DEFAULT_DATA = {
     "subscribers": [],
     "owners": [OWNER_ID],
@@ -50,7 +54,6 @@ DEFAULT_DATA = {
     },
     "approval_delay_minutes": 0, # New setting for approval delay
 }
-# <<<--- MODIFICATION END --->>>
 
 
 # ---------- Storage Helpers ----------
@@ -72,10 +75,8 @@ def load_data():
         data["owners"] = DEFAULT_DATA["owners"]
     if "subscribers" not in data:
         data["subscribers"] = DEFAULT_DATA["subscribers"]
-    # <<<--- MODIFICATION START (v4.4) --->>>
     if "approval_delay_minutes" not in data:
         data["approval_delay_minutes"] = 0
-    # <<<--- MODIFICATION END --->>>
     return data
 
 
@@ -87,6 +88,17 @@ def save_data(data):
 def is_owner(uid: int) -> bool:
     data = load_data()
     return uid in data.get("owners", [])
+
+# <<<--- MODIFICATION START (OWNER FIX) --->>>
+# This custom filter checks if a message is from any user in the owners list.
+class IsOwnerFilter(BaseFilter):
+    def filter(self, message):
+        # Use the existing is_owner function to check permission
+        return is_owner(message.from_user.id)
+
+# Create an instance of the filter to be used in the handler
+is_owner_filter = IsOwnerFilter()
+# <<<--- MODIFICATION END --->>>
 
 
 # ---------- Normalizers & Robust Helpers ----------
@@ -275,7 +287,6 @@ async def prompt_user_with_missing_channels(update: Update, context: ContextType
 
 
 # ---------- Keyboards ----------
-# <<<--- MODIFICATION START (v4.4) --->>>
 def owner_panel_kb():
     kb = [
         [
@@ -289,7 +300,6 @@ def owner_panel_kb():
         [InlineKeyboardButton("⬅️ Close", callback_data="owner_close")],
     ]
     return InlineKeyboardMarkup(kb)
-# <<<--- MODIFICATION END --->>>
 
 
 def force_setting_kb(force: dict):
@@ -378,7 +388,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("✅ Owner panel closed.")
         return
 
-    # <<<--- MODIFICATION START (v4.4) --->>>
     if payload == "owner_set_delay":
         if not is_owner(uid):
             await query.message.reply_text("❌ Only owners can set the approval delay.")
@@ -392,9 +401,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=cancel_btn()
         )
         return
-    # <<<--- MODIFICATION END --->>>
 
-    # --- Owner Panel Logic (Unchanged) ---
+    # --- Owner Panel Logic ---
     if payload == "owner_broadcast":
         if not is_owner(uid):
             await query.message.reply_text("❌ Only owners can broadcast.")
@@ -450,7 +458,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_text("🔧 *Owner Panel*\n\nChoose an option:", parse_mode="Markdown", reply_markup=owner_panel_kb())
         return
 
-    # --- Force Join Setting Logic (Unchanged) ---
+    # --- Force Join Setting Logic ---
     if payload == "owner_force":
         if not is_owner(uid):
             await query.message.reply_text("❌ Only owners can change force-join settings.")
@@ -540,7 +548,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("⚠️ No invite URL configured for this channel. Contact the owner.")
         return
 
-    # --- Verification Logic (After user clicks 'Verify' in private chat) ---
+    # --- Verification Logic ---
     if payload == "check_join":
         uid = query.from_user.id
         data = load_data()
@@ -581,7 +589,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 subs.remove(uid)
                 save_data(data)
             
-            # Delete the previous verification message before sending a new one (optional cleanup)
+            # Delete the previous verification message before sending a new one
             try:
                 await query.message.delete()
             except Exception:
@@ -596,6 +604,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- Owner Text Handler (flows) ----------
 async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
+    # This handler now works for any user confirmed by is_owner(), not just the hardcoded one.
     if not is_owner(uid):
         return
     data = load_data()
@@ -608,7 +617,6 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Cancelled.", reply_markup=ReplyKeyboardRemove())
         return
 
-    # <<<--- MODIFICATION START (v4.4) --->>>
     # Set approval delay flow
     if flow == "set_delay_time":
         try:
@@ -629,7 +637,6 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=ReplyKeyboardRemove()
         )
         return
-    # <<<--- MODIFICATION END --->>>
         
     # Broadcast flow
     if flow == "broadcast_text":
@@ -708,7 +715,7 @@ async def owner_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
 
 
-# <<<--- MODIFICATION START (v4.4) --- NEW FUNCTIONS --->>>
+# ---------- New Functions for Delayed Approval ----------
 async def _approve_user_job(context: ContextTypes.DEFAULT_TYPE):
     """Job callback to approve a user after a delay."""
     job = context.job
@@ -751,7 +758,6 @@ async def _process_approval(context: ContextTypes.DEFAULT_TYPE, chat_id: int, us
                 pass
         except Exception as e:
             print(f"Failed to approve user {user_id} to {chat_id}: {e}")
-# <<<--- MODIFICATION END --->>>
 
 
 # ---------- New Chat Join Request Handler (Core Auto-Approve Logic) ----------
@@ -766,7 +772,6 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     chat_id = chat_join_request.chat.id
     data = load_data()
 
-    # <<<--- MODIFICATION START (v4.4) --- REPLACED APPROVAL LOGIC --->>>
     # 1. Owner bypass: owners are always approved (respecting delay)
     if is_owner(user_id):
         await _process_approval(context, chat_id, user_id)
@@ -793,7 +798,6 @@ async def handle_join_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         # Force-join disabled or no channels configured -> Auto-Approve (respecting delay)
         await _process_approval(context, chat_id, user_id)
-    # <<<--- MODIFICATION END --->>>
 
 
 # ---------- Run ----------
@@ -808,10 +812,12 @@ def main():
     # Crucial: Handler for automatic approval logic
     app.add_handler(ChatJoinRequestHandler(handle_join_request))
     
-    # Owner text handler must target only owner to handle flows
-    app.add_handler(MessageHandler(filters.User(OWNER_ID) & filters.TEXT & ~filters.COMMAND, owner_text_handler))
+    # <<<--- MODIFICATION START (OWNER FIX) --->>>
+    # This handler now correctly works for ALL owners in the data file, not just the one in OWNER_ID
+    app.add_handler(MessageHandler(is_owner_filter & filters.TEXT & ~filters.COMMAND, owner_text_handler))
+    # <<<--- MODIFICATION END --->>>
 
-    print("🤖 AutoApproveBot v4.4 running...")
+    print("🤖 AutoApproveBot v4.4 (Corrected) running...")
     app.run_polling()
 
 

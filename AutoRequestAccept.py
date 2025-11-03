@@ -52,7 +52,7 @@ DEFAULT_DATA = {
     "known_chats": [],
     "auto_backup": {
         "enabled": True,
-        "interval_minutes": 60  # default 60 minutes
+        "interval_minutes": 1  # default 60 minutes
     },
     "sent_backup_messages": {}, # format: {"owner_id": [msg_id1, msg_id2, ...]}
     "stats": {}, # <-- NEW: For statistics. Format: {"YYYY-MM-DD": {"new_users": 0, "approved": 0, "declined": 0}}

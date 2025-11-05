@@ -25,7 +25,7 @@ from telegram.ext import (
 from telegram.ext.filters import BaseFilter
 
 # ================ CONFIG =================
-BOT_TOKEN = "8311987428:AAGUYS4Oyhj0y7O74P0dz4IHfQSQ438x3kA"  # <-- Put your bot token here
+BOT_TOKEN = "8311987428:AAHXzXZZLhTu36xhS2xDCoNtVzz2lySj6q8"  # <-- Put your bot token here
 OWNER_ID = 8070535163  # default owner; can be managed via bot
 # --- File Names ---
 DATA_FILE = "data.json"
@@ -43,14 +43,17 @@ DEFAULT_DATA = {
     "owners": [OWNER_ID],
     "force": {
         "enabled": False,
-        "channels": [],
+        # --- NEW DEFAULTS ADDED AS REQUESTED ---
+        "channels": [
+            {"chat_id": "@QorvraGroup", "invite": None, "join_btn_text": "📢 Main Group"}
+        ],
         "check_btn_text": "✅ Verify",
     },
     "approval_delay_minutes": 0,
     "known_chats": [],
     "auto_backup": {
         "enabled": True,
-        "interval_minutes": 1  # default 60 minutes
+        "interval_minutes": 1  # <-- default 1 minute
     },
     "sent_backup_messages": {},  # format: {"owner_id": [msg_id1, msg_id2, ...]}
     "stats": {},  # <-- NEW: For statistics. Format: {"YYYY-MM-DD": {"new_users": 0, "approved": 0, "declined": 0}}

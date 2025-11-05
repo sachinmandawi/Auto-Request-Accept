@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import json
 import os
 import shutil
@@ -54,8 +52,8 @@ DEFAULT_DATA = {
         "enabled": True,
         "interval_minutes": 1  # default 60 minutes
     },
-    "sent_backup_messages": {}, # format: {"owner_id": [msg_id1, msg_id2, ...]}
-    "stats": {}, # <-- NEW: For statistics. Format: {"YYYY-MM-DD": {"new_users": 0, "approved": 0, "declined": 0}}
+    "sent_backup_messages": {},  # format: {"owner_id": [msg_id1, msg_id2, ...]}
+    "stats": {},  # <-- NEW: For statistics. Format: {"YYYY-MM-DD": {"new_users": 0, "approved": 0, "declined": 0}}
 }
 
 
@@ -78,8 +76,8 @@ def _ensure_data_keys(data):
         data["auto_backup"] = DEFAULT_DATA["auto_backup"].copy()
     if "sent_backup_messages" not in data:
         data["sent_backup_messages"] = {}
-    if "stats" not in data: # <-- NEW
-        data["stats"] = {} # <-- NEW
+    if "stats" not in data:  # <-- NEW
+        data["stats"] = {}  # <-- NEW
     return data
 
 
@@ -327,7 +325,9 @@ async def get_missing_channels(context: ContextTypes.DEFAULT_TYPE, user_id: int)
         else:
             missing.append(ch)
 
-    check_failed = not any_check_attempted and any_check_succeeded is False
+    # --- FIX 1: Corrected logic to detect failed API calls ---
+    # This is True if we tried to check a channel but failed (e.g., bot not admin)
+    check_failed = any_check_attempted and not any_check_succeeded
     return missing, check_failed
 
 
@@ -362,6 +362,7 @@ async def prompt_user_with_missing_channels(update: Update, context: ContextType
 
         kb = build_join_keyboard_for_channels_list(missing_norm_list, load_data().get("force", {}))
     else:
+        # This block is hit if `missing_norm_list` is empty but `check_failed` is True
         text = "⚠️ I couldn't verify memberships (bot may not have access). Owner, please check bot permissions."
         kb = None
 
@@ -403,7 +404,7 @@ def owner_panel_kb():
         ],
         [
             InlineKeyboardButton("🗄️ Database", callback_data="owner_db"),
-            InlineKeyboardButton("📊 Statistics", callback_data="owner_stats") # <-- NEW
+            InlineKeyboardButton("📊 Statistics", callback_data="owner_stats")  # <-- NEW
         ],
         [InlineKeyboardButton("⬅️ Close", callback_data="owner_close")],
     ]
@@ -456,23 +457,30 @@ def cancel_btn():
 
 # ---------- Auto-backup helpers ----------
 def parse_interval_to_minutes(text: str) -> int:
+    """
+    Parses a time string (e.g., "30m", "2h", "1h30m", "60") into minutes.
+    ---
+    FIX 2: This function now uses `re.fullmatch` to validate the *entire*
+    string, preventing bugs where "2h 30" would be parsed as "2h".
+    """
     if not text or not isinstance(text, str):
         raise ValueError("Invalid interval format.")
     s = text.strip().lower()
+    
+    # Case 1: Plain number (assume minutes)
     if re.fullmatch(r"\d+", s):
         return int(s)
-    total = 0
-    m = re.findall(r"(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?", s)
-    if not m:
-        raise ValueError("Invalid interval format.")
-    hours = 0
-    minutes = 0
-    hh, mm = m[0]
-    if hh:
-        hours = int(hh)
-    if mm:
-        minutes = int(mm)
-    total = hours * 60 + minutes
+
+    # Case 2: "h" and/or "m" format
+    match = re.fullmatch(r"\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*", s)
+    if not match:
+        raise ValueError("Invalid format. Use '30m', '2h', '1h30m', or '60'.")
+    
+    hh, mm = match.groups()
+    hours = int(hh) if hh else 0
+    minutes = int(mm) if mm else 0
+    total = (hours * 60) + minutes
+    
     if total <= 0:
         raise ValueError("Interval must be positive.")
     return total
@@ -642,7 +650,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- NEW: Statistics Panel ---
     if payload == "owner_stats":
-        data = _check_and_reset_daily_stats(data) # Ensure today's stats are initialized
+        data = _check_and_reset_daily_stats(data)  # Ensure today's stats are initialized
 
         total_users = len(data.get("subscribers", []))
         known_chats = data.get("known_chats", [])
@@ -1198,6 +1206,7 @@ async def owner_flow_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if flow == "set_backup_interval":
         try:
+            # This now uses the fixed parser
             minutes = parse_interval_to_minutes(text)
             if minutes < 1:
                 raise ValueError("Interval must be at least 1 minute.")

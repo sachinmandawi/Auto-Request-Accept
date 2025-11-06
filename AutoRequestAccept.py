@@ -618,9 +618,10 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         url=f"https://t.me/{bot_username}?startgroup=true"
     )
     
+    # --- *** FIX 1 (was https.) *** ---
     add_to_channel_button = InlineKeyboardButton(
         "➕ Add Me To Your Channel ➕",
-        url=f"https.t.me/{bot_username}?startchannel=true&admin=invite_users"
+        url=f"https://t.me/{bot_username}?startchannel=true&admin=invite_users"
     )
     
     keyboard = InlineKeyboardMarkup([
@@ -1024,9 +1025,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "➕ Add Me To Your Group ➕",
                 url=f"https://t.me/{bot_username}?startgroup=true"
             )
+            
+            # --- *** FIX 2 (was https.) *** ---
             add_to_channel_button = InlineKeyboardButton(
                 "➕ Add Me To Your Channel ➕",
-                url=f"https.t.me/{bot_username}?startchannel=true&admin=invite_users"
+                url=f"https://t.me/{bot_username}?startchannel=true&admin=invite_users"
             )
             
             keyboard = InlineKeyboardMarkup([

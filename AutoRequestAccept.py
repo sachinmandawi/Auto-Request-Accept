@@ -42,7 +42,7 @@ DEFAULT_DATA = {
     "subscribers": [],
     "owners": [OWNER_ID],
     "force": {
-        "enabled": False,
+        "enabled": True,  # <-- Default is now True
         # --- NEW DEFAULTS ADDED AS REQUESTED ---
         "channels": [
             {"chat_id": "@QorvraGroup", "invite": None, "join_btn_text": "📢 Main Group"}
@@ -620,7 +620,7 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     add_to_channel_button = InlineKeyboardButton(
         "➕ Add Me To Your Channel ➕",
-        url=f"https://t.me/{bot_username}?startchannel=true&admin=invite_users"
+        url=f"https.t.me/{bot_username}?startchannel=true&admin=invite_users"
     )
     
     keyboard = InlineKeyboardMarkup([
@@ -675,7 +675,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📢 Total Channels: *{total_channels}*\n\n"
             "*-- GROWTH (Last 24h) --*\n"
             f"📈 New Users Today: *{new_users_today}*\n"
-            f"✅ Approved Today: *{approved_today}*\n"
+            f"✅ Approved Today: *{approved_today}*\n"  # <-- THIS LINE IS NOW FIXED
             f"❌ Declined Today: *{declined_today}*"
         )
         
@@ -1026,7 +1026,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             add_to_channel_button = InlineKeyboardButton(
                 "➕ Add Me To Your Channel ➕",
-                url=f"https://t.me/{bot_username}?startchannel=true&admin=invite_users"
+                url=f"https.t.me/{bot_username}?startchannel=true&admin=invite_users"
             )
             
             keyboard = InlineKeyboardMarkup([
